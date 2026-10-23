@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://static.cloudflareinsights.com; connect-src https://cloudflareinsights.com; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <title>AIに貼る前の伏せ字と戻し</title>
 <meta name="description" content="お客さんのメールなどを貼ると、名前・会社・電話・メール・住所らしい所を【お客様A】のような記号に置き換えます。AIの返事を貼り戻すと元に戻ります。貼った文はこの端末のブラウザの中だけで処理します。">
 <style>
@@ -40,6 +40,8 @@
     padding: 8px 12px 8px 28px; margin: 0 0 14px; font-size: 14px; color: var(--ink2); }
   .notice li { margin: 2px 0; }
   .small { font-size: 14px; color: var(--ink3); }
+  .small.over { color: var(--danger); font-weight: 700; }
+  p.warn { margin: 0 0 10px; }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; min-width: 0; }
   label.f { display: block; font-weight: 600; margin: 0 0 4px; }
   input[type=text], select, textarea {
@@ -64,7 +66,7 @@
     border-radius: 6px; padding: 10px 12px; margin: 0 0 10px; min-height: 3em; line-height: 1.9; }
   .textview.empty { color: var(--ink3); }
   .mk { border-radius: 4px; padding: 1px 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; color: var(--ink); }
-  .mk .lb { font-size: 11px; font-weight: 700; color: var(--ink2); margin-right: 2px; letter-spacing: 0; }
+  .mk .lb { font-size: 12px; font-weight: 700; color: var(--ink2); margin-right: 2px; letter-spacing: 0; }
   .mk.off { background: none !important; border: 1px dashed var(--line-strong); }
   .k-person { background: var(--k-person); } .k-company { background: var(--k-company); } .k-address { background: var(--k-address); }
   .k-email, .k-phone, .k-zip, .k-url { background: var(--k-contact); } .k-number { background: var(--k-number); } .k-other { background: var(--k-other); }
@@ -83,7 +85,7 @@
   details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
   .maptable { width: 100%; border-collapse: collapse; font-size: 15px; margin: 4px 0 10px; }
   .maptable td { border-top: 1px solid var(--line); padding: 6px 4px; vertical-align: top; overflow-wrap: anywhere; }
-  .maptable button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
+  .maptable button { min-height: 44px; padding: 4px 10px; font-size: 14px; }
   .check { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; font-size: 15px; min-height: 44px; padding: 10px 0 0; }
   .check input { width: 22px; height: 22px; flex: none; margin: 1px 0 0; }
   .mw-footer { box-sizing: border-box; width: 100%; max-width: 100%; margin: 24px 0 0; padding: 16px; background: #F7F7F8;
@@ -92,6 +94,7 @@
   @media (min-width: 880px) {
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
     .sticky { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+    .sticky .scrollbox { max-height: 240px; overflow-y: auto; }
   }
 </style>
 </head>
@@ -109,7 +112,7 @@
       <section class="panel" aria-labelledby="h-s1">
         <h2 id="h-s1"><span class="no">1</span>元の文を貼る</h2>
         <label class="f" for="src">お客さんからのメール・LINE・問い合わせ文など</label>
-        <textarea id="src" rows="8" maxlength="10000" placeholder="ここに貼ってください"></textarea>
+        <textarea id="src" rows="8" maxlength="10000" autocomplete="off" placeholder="ここに貼ってください"></textarea>
         <div class="btns">
           <button type="button" id="sample">例文を入れる</button>
           <button type="button" id="clear">すべて消す</button>
@@ -118,6 +121,7 @@
         <h3>置き換える所</h3>
         <div class="textview empty" id="preview" aria-live="polite">文を貼ると、置き換える候補に印が付きます。</div>
         <ul class="cands" id="cands"></ul>
+        <div class="btns"><button type="button" id="jump" class="grow" hidden>②の伏せた文へ進む</button></div>
         <h3>伏せる言葉を足す</h3>
         <p class="small">店名・商品名・あだ名など、自動で見つからなかった言葉を足せます。同じ言葉は文中すべて置き換わります。</p>
         <div class="addrow">
@@ -136,7 +140,8 @@
       <section class="panel" aria-labelledby="h-s2">
         <h2 id="h-s2"><span class="no">2</span>伏せた文をコピーしてAIに貼る</h2>
         <p class="count" id="maskcount">まだ伏せた所はありません</p>
-        <label class="check"><input type="checkbox" id="prefix" checked><span>先頭に「【 】の部分は伏せ字です。返事でもそのまま使ってください」の1行を付ける</span></label>
+        <label class="check"><input type="checkbox" id="prefix" checked><span>先頭に「【 】で囲んだ部分は伏せ字です。返事の中でもそのまま使ってください。」の1行を付ける</span></label>
+        <div id="collide"></div>
         <div class="textview empty" id="masked">ここに伏せた文が出ます。</div>
         <div class="btns"><button type="button" class="primary grow" id="copymask" disabled>伏せた文をコピー</button></div>
         <p class="msg" id="copymaskmsg" aria-live="polite"></p>
@@ -144,7 +149,7 @@
       <section class="panel" aria-labelledby="h-s3">
         <h2 id="h-s3"><span class="no">3</span>AIの返事を貼って元に戻す</h2>
         <label class="f" for="reply">AIの返事</label>
-        <textarea id="reply" rows="6" maxlength="10000" placeholder="AIの返事をここに貼ってください"></textarea>
+        <textarea id="reply" rows="6" maxlength="20000" autocomplete="off" placeholder="AIの返事をここに貼ってください"></textarea>
         <p class="count" id="restorecount"></p>
         <div id="restorewarn"></div>
         <div class="textview empty" id="restored">ここに元に戻した文が出ます。</div>
@@ -297,6 +302,13 @@ var MR = (function () {
       var v = cleanName(raw);
       if (!v) return;
       var off = raw.indexOf(v);
+      if (CO_SUFFIX.test(v) && !STOPSET[v]) { add('company', start + off, start + off + v.length); return; }
+      /* 空白なしで長い並び(「ル商事営業部山田太郎」)は、最後の部署・組織の字より後ろだけを名前とみなす。見つからなければ名前にしない */
+      if (!/[ 　]/.test(v) && Array.from(v).length > 5) {
+        var mm = /[部課室係班局店社所院校事会]([^部課室係班局店社所院校事会]{2,5})$/.exec(v);
+        if (!mm) return;
+        off = off + v.length - mm[1].length; v = mm[1];
+      }
       var bare = v.replace(/[ 　]/g, ''), parts = v.split(/[ 　]/);
       /* 「テスト 皆様」のように、空白の後ろが一般語なら名前にしない。空白の前が一般語なら後ろだけを名前の候補にする */
       if (STOPSET[bare] || STOPSET[parts[parts.length - 1]] || bare.length < 2) return;
@@ -338,7 +350,9 @@ var MR = (function () {
       for (var i = 0; i < taken.length; i++) if (r.s < taken[i].e && taken[i].s < r.e) return;
       taken.push(r);
     });
-    taken.sort(function (x, y) { return x.s - y.s; });
+    /* 重なりで負けた候補も残す。勝った候補の外に同じ文字列が出てくれば、そこも伏せる(中は長い順の照合で二重に置き換わらない) */
+    raw.forEach(function (r) { if (r.e > r.s && taken.indexOf(r) < 0) { r.lost = true; taken.push(r); } });
+    taken.sort(function (x, y) { return (x.lost ? 1 : 0) - (y.lost ? 1 : 0) || x.s - y.s; });
     var seen = {}, out = [];
     taken.forEach(function (r) {
       var v = text.slice(r.s, r.e);
@@ -365,10 +379,28 @@ var MR = (function () {
     if (buf) segs.push({ t: buf });
     return segs;
   }
+  /* 伏せないにした言葉も区切りには使う(「山田 花子」を伏せないとき、中の「山田」だけが伏せられないように)。
+     ただし、その中に手で足した言葉があれば、そちらを優先して伏せる */
+  function segment(text, terms) {
+    var manualOn = terms.filter(function (t) { return t.on && t.src !== 'auto'; });
+    var out = [];
+    scan(text, terms).forEach(function (sg) {
+      if (sg.term && !sg.term.on && manualOn.length) {
+        var inner = scan(sg.t, manualOn);
+        if (inner.some(function (x) { return x.term; })) { inner.forEach(function (x) { out.push(x); }); return; }
+      }
+      out.push(sg);
+    });
+    return out;
+  }
 
-  /* 候補と手で足した言葉から、記号つきの言葉の一覧を作る。番号は文中に出てきた順(伏せない言葉も番号を持つので、切り替えても他の記号は変わらない) */
-  function buildTerms(text, cands, manual, offs) {
+  /* 記号の帳簿: 一度決めた「言葉→記号」は、元の文を直しても、言葉を足しても外しても変えない(返事が別の人に戻る事故を防ぐ) */
+  function newBook() { return { byVal: {}, ctr: {} }; }
+
+  /* 候補と手で足した言葉から、記号つきの言葉の一覧を作る。新しい言葉には、文中に出てきた順に次の記号を割り当てる */
+  function buildTerms(text, cands, manual, offs, book) {
     text = String(text || '').slice(0, MAX);
+    book = book || newBook();
     var terms = [], byVal = {};
     cands.forEach(function (c) { var t = { kind: c.kind, value: c.value, src: 'auto' }; terms.push(t); byVal[c.value] = t; });
     (manual || []).forEach(function (m) {
@@ -376,54 +408,81 @@ var MR = (function () {
       if (byVal[m.value]) { byVal[m.value].src = 'both'; return; }
       var t = { kind: m.kind, value: m.value, src: 'manual' }; terms.push(t); byVal[m.value] = t;
     });
-    terms.forEach(function (t) { t.on = !(offs && offs[t.value]); t.count = 0; t.first = -1; t.token = ''; });
-    scan(text, terms).forEach(function (sg, idx) { if (sg.term) { sg.term.count++; if (sg.term.first < 0) sg.term.first = idx; } });
-    var ctr = {};
+    terms.forEach(function (t) { t.on = !(offs && offs[t.value]); t.count = 0; t.first = -1; t.token = ''; t.inner = ''; });
+    segment(text, terms).forEach(function (sg, idx) { if (sg.term) { sg.term.count++; if (sg.term.first < 0) sg.term.first = idx; } });
+    /* 自動の候補で文中に1回も出てこないもの(重なりで負け、外にも出てこない)は落とす */
+    terms = terms.filter(function (t) { return t.count > 0 || t.src !== 'auto'; });
     terms.filter(function (t) { return t.count > 0; }).sort(function (x, y) { return x.first - y.first; }).forEach(function (t) {
-      var k = KINDS[t.kind], n = ctr[t.kind] || 0; ctr[t.kind] = n + 1;
-      t.inner = k.tok + (k.letter ? letters(n) : String(n + 1));
-      t.token = '【' + t.inner + '】';
+      var e = book.byVal[t.value];
+      if (!e) {
+        var k = KINDS[t.kind], n = book.ctr[t.kind] || 0; book.ctr[t.kind] = n + 1;
+        e = book.byVal[t.value] = { kind: t.kind, inner: k.tok + (k.letter ? letters(n) : String(n + 1)) };
+      }
+      t.kind = e.kind; t.inner = e.inner; t.token = '【' + e.inner + '】';
     });
+    terms.book = book; terms.text = text;
     return terms;
+  }
+
+  /* 文の中に、記号の中身と同じ形の言葉(例「会社A」)がもともとあるもの。括弧なしでは戻さない */
+  var TOKEN_RE = /([【\[「『(〔〈《]?)(お客様|会社|住所|メール|電話|郵便番号|URL|番号|伏せ字)([A-Za-z]+|\d+)(?![A-Za-z0-9])([】\]」』)〕〉》]?)/gi;
+  function collisions(terms) {
+    var book = terms.book || newBook(), s = normalize(terms.text || '', false).s, out = {}, m, re = new RegExp(TOKEN_RE.source, 'gi');
+    while ((m = re.exec(s))) { var inner = (m[2] + m[3]).toUpperCase(); if (innerMap(book)[inner]) out[inner] = 1; }
+    return Object.keys(out);
+  }
+  function innerMap(book) {
+    var map = {};
+    Object.keys(book.byVal).forEach(function (v) { map[book.byVal[v].inner.toUpperCase()] = { value: v, inner: book.byVal[v].inner, kind: book.byVal[v].kind }; });
+    return map;
   }
 
   function mask(text, terms, withPrefix) {
     text = String(text || '').slice(0, MAX);
-    /* 伏せないにした言葉も区切りには使う(「山田 花子」を伏せないとき、中の「山田」だけが伏せられないように) */
-    var segs = scan(text, terms.filter(function (t) { return t.token; })), out = '', count = 0;
+    var segs = segment(text, terms.filter(function (t) { return t.token; })), out = '', count = 0;
     segs.forEach(function (sg) { if (sg.term && sg.term.on) { out += sg.term.token; count++; } else out += sg.t; });
     var body = out;
     if (withPrefix && count) out = PREFIX + '\n\n' + out;
-    return { text: out, body: body, segs: segs, count: count };
+    return { text: out, body: body, segs: segs, count: count, collisions: collisions(terms) };
   }
 
-  /* 返事の中の記号を元に戻す。括弧の崩れ・全角半角の違いも拾う */
+  /* 返事の中の記号を元に戻す。括弧の崩れ・全角半角の違いも拾う。
+     戻す先は帳簿(これまでに割り当てたすべての記号)。括弧は、対になっているときと【 】の片側だけのときに限って記号に含める */
+  var PAIR = { '【': '】', '[': ']', '「': '」', '『': '』', '(': ')', '〔': '〕', '〈': '〉', '《': '》' };
+  var HON = ['様', 'さま', 'さん', '殿', '先生'];
   function restore(reply, terms) {
-    reply = String(reply || '').slice(0, MAX);
-    var on = terms.filter(function (t) { return t.on && t.token; });
-    var byInner = {}; on.forEach(function (t) { byInner[t.inner.toUpperCase()] = t; t.restored = 0; });
-    var N = normalize(reply, false), s = N.s;
-    var re = /([【\[「『(〔〈《]?)(お客様|会社|住所|メール|電話|郵便番号|URL|番号|伏せ字)([A-Za-z]+|\d+)(?![A-Za-z0-9])([】\]」』)〕〉》]?)/gi;
-    var hits = [], unknown = [], m;
+    reply = String(reply || '').slice(0, MAX * 2);
+    var map = innerMap(terms.book || newBook()), coll = {};
+    collisions(terms).forEach(function (k) { coll[k] = 1; });
+    var N = normalize(reply, false), s = N.s, re = new RegExp(TOKEN_RE.source, 'gi');
+    var hits = [], unknown = [], used = {}, m;
     while ((m = re.exec(s))) {
       var o = m[1], c = m[4], inner = (m[2] + m[3]).toUpperCase(), numbered = /\d$/.test(m[3]);
-      var t = byInner[inner];
-      var bracket = !!(o || c);
-      if (!t) { if (bracket && (o === '【' || c === '】')) unknown.push(reply.slice(N.a[m.index], N.b[m.index + m[0].length - 1])); continue; }
-      if (numbered && !bracket) continue; /* 「番号1」などは自然な文にも出るので、括弧が無ければ戻さない */
-      hits.push({ s: N.a[m.index], e: N.b[m.index + m[0].length - 1], term: t });
+      var wrap = (o && c && PAIR[o] === c) || (o === '【' && !c) || (!o && c === '】');
+      var ns = m.index + (wrap ? 0 : o.length), ne = m.index + m[0].length - (wrap ? 0 : c.length);
+      var e = map[inner];
+      if (!e) {
+        if (!numbered || wrap) unknown.push(reply.slice(N.a[ns], N.b[ne - 1]));
+        continue;
+      }
+      if ((numbered || coll[inner]) && !wrap) continue; /* 「番号1」や、元の文にもともとある「会社A」などは、括弧が無ければ戻さない */
+      hits.push({ s: N.a[ns], e: N.b[ne - 1], entry: e });
     }
-    var segs = [], last = 0, out = '', count = 0;
+    var segs = [], last = 0, out = '', count = 0, doubled = [];
     hits.forEach(function (h) {
       if (h.s < last) return;
       if (h.s > last) { segs.push({ t: reply.slice(last, h.s) }); out += reply.slice(last, h.s); }
-      segs.push({ t: h.term.value, term: h.term, from: reply.slice(h.s, h.e) }); out += h.term.value; count++; h.term.restored++;
+      segs.push({ t: h.entry.value, entry: h.entry, from: reply.slice(h.s, h.e) }); out += h.entry.value; count++;
+      used[h.entry.inner] = 1;
+      var after = reply.slice(h.e);
+      HON.forEach(function (a) {
+        if (h.entry.value.slice(-a.length) !== a) return;
+        HON.forEach(function (b2) { if (after.indexOf(b2) === 0) doubled.push(h.entry.value + b2); });
+      });
       last = h.e;
     });
     if (last < reply.length) { segs.push({ t: reply.slice(last) }); out += reply.slice(last); }
-    var unused = on.filter(function (t) { return !t.restored; });
-    var doubled = [];
-    on.forEach(function (t) { if (t.kind === 'person' && t.restored && out.indexOf(t.value + '様様') >= 0) doubled.push(t.value + '様様'); });
+    var unused = terms.filter(function (t) { return t.on && t.token && !used[t.inner]; });
     return { text: out, segs: segs, count: count, unknown: unknown, unused: unused, doubled: doubled };
   }
 
@@ -436,7 +495,7 @@ var MR = (function () {
 
   var SAMPLE = 'はじめまして、株式会社サンプル商事の山田 花子と申します。\n来月の社内研修で、パンフレットの撮影をお願いできないかと思いご連絡しました。\n会場は 東京都架空区見本町1-2-3 の3階です。\nご都合を、山田様宛てではなく担当の佐藤さんにご返信ください。\n連絡先: hanako@example.com / 090-0000-1234';
 
-  return { MAX: MAX, PREFIX: PREFIX, KINDS: KINDS, detect: detect, buildTerms: buildTerms, mask: mask, restore: restore, scan: scan, peek: peek, letters: letters, normalize: normalize, SAMPLE: SAMPLE };
+  return { MAX: MAX, PREFIX: PREFIX, KINDS: KINDS, detect: detect, buildTerms: buildTerms, newBook: newBook, segment: segment, collisions: collisions, mask: mask, restore: restore, scan: scan, peek: peek, letters: letters, normalize: normalize, SAMPLE: SAMPLE };
 })();
 if (typeof module !== 'undefined') module.exports = MR;
 </script>
@@ -446,21 +505,28 @@ if (typeof module !== 'undefined') module.exports = MR;
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var src = $('src'), reply = $('reply');
-  var state = { cands: [], manual: [], offs: {}, terms: [] };
-  var timer = null;
+  /* book: 言葉→記号の帳簿。元の文を直しても記号を付け替えない。「すべて消す」と「例文を入れる」でだけ作り直す */
+  var state = { cands: [], manual: [], offs: {}, terms: [], book: MR.newBook() };
+  var srcTimer = null, replyTimer = null;
 
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
   function kindLabel(k) { return MR.KINDS[k].label; }
+  function hasBook() { return Object.keys(state.book.byVal).length > 0; }
+  function resetAll() { state.manual = []; state.offs = {}; state.book = MR.newBook(); }
 
   function recompute() {
-    var text = src.value;
-    $('srclen').textContent = Array.from(text).length.toLocaleString('ja-JP') + ' / 10,000字';
+    clearTimeout(srcTimer); srcTimer = null;
+    var text = src.value, full = text.length >= src.maxLength;
+    var sl = $('srclen');
+    sl.textContent = Array.from(text).length.toLocaleString('ja-JP') + ' / 10,000字' + (full ? '（上限に達しました。これより後ろは貼られていません）' : '');
+    sl.className = full ? 'small over' : 'small';
     state.cands = MR.detect(text);
-    state.terms = MR.buildTerms(text, state.cands, state.manual, state.offs);
+    state.terms = MR.buildTerms(text, state.cands, state.manual, state.offs, state.book);
     renderPreview(text); renderCands(); renderMasked(); renderRestore(); renderMap();
   }
-  function schedule() { clearTimeout(timer); timer = setTimeout(recompute, 150); }
+  /* 入力の途中で古い対応表のままコピーしないよう、コピーの直前に必ず計算し直す */
+  function flush() { if (srcTimer) recompute(); if (replyTimer) { clearTimeout(replyTimer); replyTimer = null; renderRestore(); } }
 
   function mark(term, text, isOff) {
     var sp = el('span', 'mk k-' + term.kind + (isOff ? ' off' : ''));
@@ -472,7 +538,7 @@ if (typeof module !== 'undefined') module.exports = MR;
     var box = $('preview'); clear(box);
     if (!text) { box.className = 'textview empty'; box.textContent = '文を貼ると、置き換える候補に印が付きます。'; return; }
     box.className = 'textview';
-    MR.scan(text, state.terms.filter(function (t) { return t.token; })).forEach(function (sg) {
+    MR.segment(text, state.terms.filter(function (t) { return t.token; })).forEach(function (sg) {
       box.appendChild(sg.term ? mark(sg.term, sg.t, !sg.term.on) : document.createTextNode(sg.t));
     });
   }
@@ -484,7 +550,10 @@ if (typeof module !== 'undefined') module.exports = MR;
       v.appendChild(el('span', 'kd k-' + t.kind, kindLabel(t.kind)));
       v.appendChild(el('span', 'orig', t.value));
       if (t.token) v.appendChild(el('span', 'to', t.on ? '→ ' + t.token + (t.count > 1 ? '（' + t.count + '回）' : '') : '伏せない（元のまま）'));
-      else v.appendChild(el('span', 'to none', '文中にありません'));
+      else {
+        var inOff = t.on && state.terms.some(function (o) { return !o.on && o !== t && o.value.indexOf(t.value) >= 0 && src.value.indexOf(o.value) >= 0; });
+        v.appendChild(el('span', 'to none', inOff ? '伏せないにした言葉の中にだけあります' : t.on ? '文中にありません' : '伏せない（元のまま）'));
+      }
       li.appendChild(v);
       if (t.src === 'manual') {
         var del = el('button', '', '外す'); del.type = 'button';
@@ -500,14 +569,17 @@ if (typeof module !== 'undefined') module.exports = MR;
       }
       ul.appendChild(li);
     });
+    $('jump').hidden = !state.terms.length;
   }
   function renderMasked() {
-    var r = MR.mask(src.value, state.terms, $('prefix').checked), box = $('masked');
-    clear(box);
+    var r = MR.mask(src.value, state.terms, $('prefix').checked), box = $('masked'), cw = $('collide');
+    clear(box); clear(cw);
     $('maskcount').textContent = r.count ? r.count + 'か所を伏せました' : 'まだ伏せた所はありません';
     $('copymask').disabled = !src.value;
+    $('copymask').textContent = src.value && !r.count ? 'そのままコピー（伏せた所なし）' : '伏せた文をコピー';
+    if (r.collisions.length) cw.appendChild(el('p', 'warn', '元の文に「' + r.collisions.join('」「') + '」という言葉がもともとあります。返事の中で【 】が外れていると区別できないため、その記号は【 】付きのときだけ戻します。'));
     if (!src.value) { box.className = 'textview empty'; box.textContent = 'ここに伏せた文が出ます。'; return; }
-    box.className = 'textview';
+    box.className = 'textview scrollbox';
     if ($('prefix').checked && r.count) box.appendChild(el('span', 'small', MR.PREFIX + '\n\n'));
     r.segs.forEach(function (sg) {
       if (sg.term && sg.term.on && sg.term.token) box.appendChild(el('span', 'tok', sg.term.token));
@@ -524,31 +596,32 @@ if (typeof module !== 'undefined') module.exports = MR;
     var r = MR.restore(text, state.terms);
     box.className = 'textview';
     r.segs.forEach(function (sg) {
-      if (sg.term) { var u = el('span', 'rs', sg.t); u.title = sg.from + ' を戻しました'; box.appendChild(u); }
+      if (sg.entry) { var u = el('span', 'rs', sg.t); u.title = sg.from + ' を戻しました'; box.appendChild(u); }
       else box.appendChild(document.createTextNode(sg.t));
     });
     $('restorecount').textContent = r.count + 'か所を戻しました';
     $('copyrestore').disabled = false;
     var items = [];
-    if (!state.terms.some(function (t) { return t.on && t.token; })) items.push('対応表がありません。ページを開き直した場合は、元に戻せません（①から伏せ直してください）。');
+    if (!hasBook()) items.push('対応表がありません。ページを開き直した場合や「すべて消す」を押した後は、元に戻せません（①から伏せ直してください）。');
     if (r.unknown.length) items.push('戻せなかった記号があります: ' + r.unknown.slice(0, 10).join('、'));
     if (r.doubled.length) items.push('敬称が二重になっている所があります: ' + r.doubled.join('、'));
     if (items.length) {
       var w = el('div', 'warn'); w.appendChild(el('strong', '', '確認してください')); var ul = el('ul');
       items.forEach(function (s) { ul.appendChild(el('li', '', s)); }); w.appendChild(ul); warn.appendChild(w);
     }
-    if (r.unused.length && state.terms.some(function (t) { return t.on && t.token; })) {
+    if (r.unused.length && hasBook()) {
       warn.appendChild(el('p', 'small', '返事に出てこなかった記号: ' + r.unused.map(function (t) { return t.token; }).join('、') + '（問題ではありません。名前が抜けた返事になっていないかの確認用です）'));
     }
   }
   function renderMap() {
     var tb = $('maptable'); clear(tb);
-    var on = state.terms.filter(function (t) { return t.on && t.token; });
-    if (!on.length) { var tr0 = el('tr'); tr0.appendChild(el('td', '', 'まだありません')); tb.appendChild(tr0); return; }
-    on.forEach(function (t) {
-      var tr = el('tr'), td1 = el('td', 'tok', t.token), td2 = el('td', '', MR.peek(t.value)), td3 = el('td');
-      var b = el('button', '', '表示'); b.type = 'button'; b.setAttribute('aria-label', t.token + 'の元の言葉を表示');
-      b.addEventListener('click', function () { td2.textContent = t.value; b.disabled = true; });
+    var vals = Object.keys(state.book.byVal);
+    if (!vals.length) { var tr0 = el('tr'); tr0.appendChild(el('td', '', 'まだありません')); tb.appendChild(tr0); return; }
+    vals.forEach(function (v) {
+      var e = state.book.byVal[v];
+      var tr = el('tr'), td1 = el('td', 'tok', '【' + e.inner + '】'), td2 = el('td', '', MR.peek(v)), td3 = el('td');
+      var b = el('button', '', '表示'); b.type = 'button'; b.setAttribute('aria-label', '【' + e.inner + '】の元の言葉を表示');
+      b.addEventListener('click', function () { td2.textContent = v; b.disabled = true; });
       td3.appendChild(b); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tb.appendChild(tr);
     });
   }
@@ -565,16 +638,20 @@ if (typeof module !== 'undefined') module.exports = MR;
     } else fallback();
   }
 
-  src.addEventListener('input', schedule);
-  reply.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { renderRestore(); }, 150); });
+  src.addEventListener('input', function () { clearTimeout(srcTimer); srcTimer = setTimeout(recompute, 150); });
+  reply.addEventListener('input', function () { clearTimeout(replyTimer); replyTimer = setTimeout(function () { replyTimer = null; renderRestore(); }, 150); });
   $('prefix').addEventListener('change', renderMasked);
-  $('sample').addEventListener('click', function () { src.value = MR.SAMPLE; state.manual = []; state.offs = {}; recompute(); });
+  $('sample').addEventListener('click', function () {
+    if ((src.value || reply.value) && !window.confirm('入力・返事・対応表を消して、例文を入れます。よろしいですか？')) return;
+    src.value = MR.SAMPLE; reply.value = ''; resetAll(); recompute();
+  });
   $('clear').addEventListener('click', function () {
     if ((src.value || reply.value) && !window.confirm('入力・返事・対応表をすべて消します。よろしいですか？')) return;
-    src.value = ''; reply.value = ''; state.manual = []; state.offs = {}; $('addmsg').textContent = '';
+    src.value = ''; reply.value = ''; resetAll(); $('addmsg').textContent = '';
     $('copymaskmsg').textContent = ''; $('copyrestoremsg').textContent = ''; recompute();
   });
   $('addbtn').addEventListener('click', function () {
+    flush();
     var w = $('addword').value.replace(/^[ 　]+|[ 　]+$/g, ''), kind = $('addkind').value, msg = $('addmsg');
     if (!w) { msg.textContent = '伏せる言葉を入れてください'; return; }
     var ex = state.terms.filter(function (t) { return t.value === w; })[0];
@@ -586,8 +663,9 @@ if (typeof module !== 'undefined') module.exports = MR;
     msg.textContent = t && t.token ? '「' + w + '」を ' + t.token + ' にしました' : '「' + w + '」は文中にありません（足した言葉には残しています）';
   });
   $('addword').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('addbtn').click(); } });
-  $('copymask').addEventListener('click', function () { copyText(MR.mask(src.value, state.terms, $('prefix').checked).text, $('copymaskmsg'), $('masked')); });
-  $('copyrestore').addEventListener('click', function () { copyText(MR.restore(reply.value, state.terms).text, $('copyrestoremsg'), $('restored')); });
+  $('jump').addEventListener('click', function () { $('h-s2').scrollIntoView({ block: 'start' }); $('copymask').focus({ preventScroll: true }); });
+  $('copymask').addEventListener('click', function () { flush(); copyText(MR.mask(src.value, state.terms, $('prefix').checked).text, $('copymaskmsg'), $('masked')); });
+  $('copyrestore').addEventListener('click', function () { flush(); copyText(MR.restore(reply.value, state.terms).text, $('copyrestoremsg'), $('restored')); });
   window.addEventListener('beforeunload', function (e) { if (src.value || reply.value) { e.preventDefault(); e.returnValue = ''; } });
   recompute();
 })();

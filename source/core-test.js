@@ -16,7 +16,8 @@ const run = (text, manual, offs) => {
   const terms = MR.buildTerms(text, cands, manual || [], offs || {});
   return { cands, terms, m: MR.mask(text, terms, false) };
 };
-const kinds = text => MR.detect(text).map(c => c.kind + ':' + c.value);
+// 重なりで負けた候補は detect には残るが、文中に出てこなければ buildTerms で落ちる。利用者に見える一覧(terms)で比べる
+const kinds = text => run(text).terms.map(t => t.kind + ':' + t.value);
 
 // S1 Card1のサンプル
 const r1 = run(MR.SAMPLE);
@@ -51,7 +52,8 @@ eq('S3 未知の記号', R('【お客様AB】様と【電話9】').unknown, ['�
 eq('S3 未知の記号は戻さない', R('【お客様AB】様').text, '【お客様AB】様');
 eq('S3 空白を飲み込まない', R('会場は 【住所1】 の3階').text, '会場は 東京都架空区見本町1-2-3 の3階');
 eq('S3 使われなかった記号', R('【お客様A】様').unused.map(t => t.token), ['【会社A】', '【住所1】', '【お客様B】', '【お客様C】', '【メール1】', '【電話1】']);
-eq('S3 様様', R('【お客様C】様様').doubled, ['佐藤様様']);
+eq('S3 様様(値に敬称が入っている)', MR.restore('【お客様A】様', run('山田様へ', [{ value: '山田様', kind: 'person' }]).terms).doubled, ['山田様様']);
+eq('S3 様様(さん)', MR.restore('【お客様A】さん', run('佐藤さんへ', [{ value: '佐藤さん', kind: 'person' }]).terms).doubled, ['佐藤さんさん']);
 // 27人目以降の記号
 eq('letters', [0, 25, 26, 27, 51, 52].map(MR.letters), ['A', 'Z', 'AA', 'AB', 'AZ', 'BA']);
 const many = Array.from({ length: 28 }, (_, i) => '人' + '一二三四五六七八九十'.charAt(i % 10) + String.fromCharCode(0x30A2 + i * 2) + '様').join('、');
@@ -98,6 +100,51 @@ let t0 = Date.now(); const rb = run(big); const back = MR.restore(rb.m.text, rb.
 eq('S12 roundtrip', back.text, big);
 console.log('S12 10,000字 伏せる+戻す: ' + ms + 'ms');
 eq('peek', [MR.peek('山田 花子'), MR.peek('林'), MR.peek('ab')], ['山＊＊＊子', '林＊', 'a＊']);
+
+// ---- レビュー①の指摘 ----
+// 🔴1 伏せた後に①を変えても、記号は別の人に付け替わらない
+{
+  const book = MR.newBook();
+  const t1 = MR.buildTerms('担当の佐藤さんと山田様', MR.detect('担当の佐藤さんと山田様'), [], {}, book);
+  eq('R1 before', MR.mask('担当の佐藤さんと山田様', t1, false).text, '担当の【お客様A】さんと【お客様B】様');
+  const text2 = '鈴木さん経由で担当の佐藤さんと山田様';
+  const t2 = MR.buildTerms(text2, MR.detect(text2), [], {}, book);
+  eq('R1 after edit restore', MR.restore('【お客様A】に連絡', t2).text, '佐藤に連絡');
+  eq('R1 new person gets C', MR.mask(text2, t2, false).text, '【お客様C】さん経由で担当の【お客様A】さんと【お客様B】様');
+  // 文から消えた人の記号も戻せる
+  const t3 = MR.buildTerms('山田様', MR.detect('山田様'), [], {}, book);
+  eq('R1 removed person still restores', MR.restore('【お客様A】と【お客様B】', t3).text, '佐藤と山田');
+}
+// 🔴2 前後の括弧を片側だけ飲み込まない
+{
+  const t = run('山田様へ').terms;
+  eq('R2 開きかぎ', MR.restore('件名「お客様A様へのご案内」です', t).text, '件名「山田様へのご案内」です');
+  eq('R2 開き丸', MR.restore('（お客様A様）', t).text, '（山田様）');
+  eq('R2 閉じかぎ', MR.restore('彼は「ありがとう、お客様A」と言った', t).text, '彼は「ありがとう、山田」と言った');
+  const ta = run('東京都港区芝公園1-2-3').terms;
+  eq('R2 番号の開き丸だけ', MR.restore('（住所1、です', ta).text, '（住所1、です');
+  eq('R2 番号の対の丸', MR.restore('（住所1）です', ta).text, '東京都港区芝公園1-2-3です');
+  eq('R2 【だけ', MR.restore('【住所1です', ta).text, '東京都港区芝公園1-2-3です');
+  eq('R2 】だけ', MR.restore('住所1】です', ta).text, '東京都港区芝公園1-2-3です');
+  eq('R2 対のかぎ', MR.restore('「お客様A」様', t).text, '山田様');
+}
+// 🟡3 重なりで負けた名前も、外に出てくれば伏せる
+eq('R3', run('株式会社サンプル商事営業部山田太郎様宛。山田太郎です').m.text.indexOf('山田太郎'), -1);
+// 🟡4 伏せないにした言葉の中の、手で足した言葉は伏せる
+{
+  const r = run('山田 花子様', [{ value: '花子', kind: 'person' }], { '山田 花子': 1 });
+  eq('R4 masked', r.m.text, '山田 【お客様A】様');
+  eq('R4 count', r.terms.filter(t => t.value === '花子')[0].count, 1);
+}
+// 🟡8 元の文にもともと「会社A」があると、括弧なしでは戻さない
+{
+  const r = run('株式会社テスト商事です。比較表の会社Aと会社Bを見てください');
+  eq('R8 collisions', r.m.collisions, ['会社A']);
+  eq('R8 bare not restored', MR.restore('会社Aと会社Bを比べると', r.terms).text, '会社Aと会社Bを比べると');
+  eq('R8 bracket restored', MR.restore('【会社A】と会社B', r.terms).text, '株式会社テスト商事と会社B');
+}
+// 🟡9 対応表にない括弧なしの文字記号にも注意
+eq('R9', MR.restore('お客様AB様', run('山田様へ').terms).unknown, ['お客様AB']);
 
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -66,6 +66,18 @@ const click = t => `[...document.querySelectorAll('button')].find(x=>x.textConte
   console.log('xss', JSON.stringify(await b.ev(`({x:window.__x, imgs:document.querySelectorAll('main img').length, scripts:document.querySelectorAll('main script').length, b:document.querySelectorAll('main b').length, restored:document.getElementById('restored').innerText.slice(0,80)})`)));
   // 端末への保存
   console.log('storage', JSON.stringify(await b.ev(`(async()=>({ls:localStorage.length, ss:sessionStorage.length, idb:(indexedDB.databases?(await indexedDB.databases()).length:'n/a'), cookie:document.cookie}))()`)));
+  // 伏せた後に①を直しても、記号が別の人に付け替わらない(UI)
+  await b.open(ORIGIN, 375, 812, 2, true, 'light');
+  await b.ev(setVal('src', '担当の佐藤さんと山田様')); await b.sleep(300);
+  await b.ev(setVal('src', '鈴木さん経由で担当の佐藤さんと山田様')); await b.sleep(300);
+  await b.ev(setVal('reply', '【お客様A】に連絡')); await b.sleep(300);
+  console.log('edit-after-copy', JSON.stringify(await b.ev(`document.getElementById('restored').innerText`)));
+  // 打ち込んだ直後(150ms以内)のコピーでも新しい文で伏せる
+  await b.ev(`(()=>{const e=document.getElementById('src');e.value='田中様と高橋様';e.dispatchEvent(new Event('input'));document.getElementById('copymask').click()})()`); await b.sleep(50);
+  console.log('flush-before-copy', JSON.stringify(await b.ev(`document.getElementById('maskcount').textContent`)));
+  // 何も伏せていないときのボタン名
+  await b.ev(setVal('src', '明日の件、了解しました')); await b.sleep(300);
+  console.log('nothing-label', JSON.stringify(await b.ev(`document.getElementById('copymask').textContent`)));
   // 10,000字
   const big = await b.ev(`(MR.SAMPLE+'\\n').repeat(60).slice(0,10000)`);
   const t0 = Date.now(); await b.ev(`(()=>{const e=document.getElementById('src');e.value=${JSON.stringify(big)};e.dispatchEvent(new Event('input'))})()`); await b.sleep(200);
