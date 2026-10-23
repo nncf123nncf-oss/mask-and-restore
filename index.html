@@ -493,7 +493,7 @@ var MR = (function () {
     return a[0] + new Array(Math.min(a.length - 2, 8) + 1).join('＊') + a[a.length - 1];
   }
 
-  var SAMPLE = 'はじめまして、株式会社サンプル商事の山田 花子と申します。\n来月の社内研修で、パンフレットの撮影をお願いできないかと思いご連絡しました。\n会場は 東京都架空区見本町1-2-3 の3階です。\nご都合を、山田様宛てではなく担当の佐藤さんにご返信ください。\n連絡先: hanako@example.com / 090-0000-1234';
+  var SAMPLE = 'はじめまして、株式会社サンプル商事の山田 花子と申します。\n来月の社内研修で、パンフレットの撮影をお願いできないかと思いご連絡しました。\n会場は 東京都架空区見本町1-2-3 の3階です。\nご都合を、山田様宛てではなく担当の佐藤さんにご返信ください。\n連絡先: hanako@example.com / 090-0000-0000';
 
   return { MAX: MAX, PREFIX: PREFIX, KINDS: KINDS, detect: detect, buildTerms: buildTerms, newBook: newBook, segment: segment, collisions: collisions, mask: mask, restore: restore, scan: scan, peek: peek, letters: letters, normalize: normalize, SAMPLE: SAMPLE };
 })();

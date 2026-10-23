@@ -80,9 +80,9 @@ const click = t => `[...document.querySelectorAll('button')].find(x=>x.textConte
   console.log('nothing-label', JSON.stringify(await b.ev(`document.getElementById('copymask').textContent`)));
   // 10,000字
   const big = await b.ev(`(MR.SAMPLE+'\\n').repeat(60).slice(0,10000)`);
-  const t0 = Date.now(); await b.ev(`(()=>{const e=document.getElementById('src');e.value=${JSON.stringify(big)};e.dispatchEvent(new Event('input'))})()`); await b.sleep(200);
-  const ms = await b.ev(`(()=>{const t=performance.now();document.getElementById('src').dispatchEvent(new Event('input'));return new Promise(r=>setTimeout(()=>r(Math.round(performance.now()-t-150)),400))})()`);
-  console.log('10000chars-recompute-ms(approx, debounce除く)', ms, JSON.stringify(await b.ev(`document.getElementById('maskcount').textContent`)));
+  await b.ev(`(()=>{const e=document.getElementById('src');e.value=${JSON.stringify(big)};e.dispatchEvent(new Event('input'))})()`); await b.sleep(600);
+  // 画面込みの処理時間はここでは測らない（純ロジックの時間は core-test.js の S12）
+  console.log('10000chars', JSON.stringify(await b.ev(`document.getElementById('maskcount').textContent`)));
   console.log('requests', JSON.stringify(reqs));
   b.close(); srv.close();
 })().catch(e => { console.error(e); process.exit(1); });
