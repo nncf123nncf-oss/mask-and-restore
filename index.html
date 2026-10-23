@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://static.cloudflareinsights.com; connect-src https://cloudflareinsights.com; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>AIに貼る前の伏せ字と戻し</title>
+<meta name="description" content="お客さんのメールなどを貼ると、名前・会社・電話・メール・住所らしい所を【お客様A】のような記号に置き換えます。AIの返事を貼り戻すと元に戻ります。貼った文はこの端末のブラウザの中だけで処理します。">
+<style>
+  :root {
+    --bg: #f7f3f4; --surface: #ffffff; --ink: #24161a; --ink2: #47343a; --ink3: #5f4b51;
+    --line: #e0d3d6; --line-strong: #7a6268; --accent: #6B3A4A; --accent-ink: #ffffff; --accent-soft: #f3e6ea;
+    --danger: #a8231b; --danger-soft: #fbe9e7; --notice: #f1eaec;
+    --k-person: #fbd9de; --k-company: #dbe6fb; --k-address: #d9f0df; --k-contact: #fdecc0; --k-number: #e7def6; --k-other: #e6e6e6;
+    --restored: #6B3A4A;
+    --font: "Hiragino Sans","Yu Gothic","BIZ UDPGothic","Noto Sans JP",system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171012; --surface: #21181b; --ink: #f4e9ec; --ink2: #dccbd0; --ink3: #bda9af;
+      --line: #3d2d32; --line-strong: #9a8187; --accent: #E3A9BC; --accent-ink: #2a0f18; --accent-soft: #3a2229;
+      --danger: #ff9a92; --danger-soft: #3a1f1c; --notice: #2a1d21;
+      --k-person: #5a2a33; --k-company: #233a5e; --k-address: #22462d; --k-contact: #54431a; --k-number: #3d2f57; --k-other: #3a3a3a;
+      --restored: #E3A9BC;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.6; }
+  main { max-width: 1080px; margin: 0 auto; padding: 16px 16px 32px; }
+  h1 { font-size: 22px; line-height: 1.3; margin: 8px 0 8px; }
+  h2 { font-size: 18px; line-height: 1.4; margin: 0 0 10px; display: flex; gap: 8px; align-items: baseline; }
+  h2 .no { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink); font-size: 16px; font-weight: 800; }
+  h3 { font-size: 16px; line-height: 1.4; margin: 12px 0 6px; }
+  p { margin: 0 0 10px; }
+  .lead { color: var(--ink2); }
+  .notice { background: var(--notice); border: 1px solid var(--line-strong); border-left: 6px solid var(--accent); border-radius: 6px;
+    padding: 8px 12px 8px 28px; margin: 0 0 14px; font-size: 14px; color: var(--ink2); }
+  .notice li { margin: 2px 0; }
+  .small { font-size: 14px; color: var(--ink3); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; min-width: 0; }
+  label.f { display: block; font-weight: 600; margin: 0 0 4px; }
+  input[type=text], select, textarea {
+    display: block; width: 100%; max-width: 100%; min-width: 0; min-height: 44px; font: inherit; font-size: 16px; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line-strong); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; -webkit-appearance: none; appearance: none; }
+  select { -webkit-appearance: menulist; appearance: auto; }
+  textarea { resize: vertical; min-height: 140px; line-height: 1.6; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus-visible, a:focus-visible {
+    outline: 3px solid var(--accent); outline-offset: 2px; }
+  button { font: inherit; font-size: 16px; min-height: 44px; min-width: 44px; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line-strong);
+    background: var(--surface); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+  .btns .grow { flex: 1 1 160px; }
+  .count { font-weight: 700; margin: 0 0 8px; }
+  .msg { font-size: 14px; color: var(--ink2); margin: 0 0 8px; min-height: 1.4em; }
+  .errors { border: 2px solid var(--danger); background: var(--danger-soft); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
+  .warn { border: 2px solid var(--danger); background: var(--danger-soft); border-radius: 8px; padding: 8px 12px; margin: 0 0 10px; font-size: 15px; }
+  .warn ul { margin: 4px 0 0; padding-left: 1.2em; }
+  .textview { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px 12px; margin: 0 0 10px; min-height: 3em; line-height: 1.9; }
+  .textview.empty { color: var(--ink3); }
+  .mk { border-radius: 4px; padding: 1px 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; color: var(--ink); }
+  .mk .lb { font-size: 11px; font-weight: 700; color: var(--ink2); margin-right: 2px; letter-spacing: 0; }
+  .mk.off { background: none !important; border: 1px dashed var(--line-strong); }
+  .k-person { background: var(--k-person); } .k-company { background: var(--k-company); } .k-address { background: var(--k-address); }
+  .k-email, .k-phone, .k-zip, .k-url { background: var(--k-contact); } .k-number { background: var(--k-number); } .k-other { background: var(--k-other); }
+  .tok { font-weight: 700; color: var(--accent); }
+  .rs { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-color: var(--restored); font-weight: 600; }
+  .cands { list-style: none; margin: 0 0 10px; padding: 0; }
+  .cands li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; border-top: 1px solid var(--line); padding: 6px 0; }
+  .cands li:first-child { border-top: 0; }
+  .cands .v { overflow-wrap: anywhere; min-width: 0; }
+  .cands .v .kd { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 6px; color: var(--ink); }
+  .cands .v .to { display: block; font-size: 14px; color: var(--ink3); }
+  .cands .v .none { color: var(--danger); }
+  .cands li.isoff .v .orig { text-decoration: line-through; color: var(--ink3); }
+  .tg[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+  .addrow { display: grid; grid-template-columns: minmax(0, 1fr) 7.5em; gap: 0 8px; }
+  details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+  .maptable { width: 100%; border-collapse: collapse; font-size: 15px; margin: 4px 0 10px; }
+  .maptable td { border-top: 1px solid var(--line); padding: 6px 4px; vertical-align: top; overflow-wrap: anywhere; }
+  .maptable button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
+  .check { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; font-size: 15px; min-height: 44px; padding: 10px 0 0; }
+  .check input { width: 22px; height: 22px; flex: none; margin: 1px 0 0; }
+  .mw-footer { box-sizing: border-box; width: 100%; max-width: 100%; margin: 24px 0 0; padding: 16px; background: #F7F7F8;
+    border: 1px solid #D8D8DC; border-radius: 6px; color: #3A3A3E; font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.7; }
+  .mw-footer p { margin: 0 0 6px; } .mw-footer p:last-child { margin-bottom: 0; } .mw-footer a { color: #0B5AA6; display: inline-block; padding: 13px 0; }
+  @media (min-width: 880px) {
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+    .sticky { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>AIに貼る前の伏せ字と戻し</h1>
+  <p class="lead">お客さんのメールなどを貼ると、名前・会社・電話・メール・住所らしい所を【お客様A】のような記号に置き換えます。AIの返事をここに貼り戻すと、記号が元の名前や番号に戻ります。</p>
+  <ul class="notice">
+    <li>貼った文は、この端末のブラウザの中だけで処理し、送信しません（閲覧数を数えるアクセス解析だけ使っています）。</li>
+    <li>自動の置き換えは完全ではありません。AIに貼る前に、目で確かめてください。敬称のない名前や、都道府県から始まらない住所は見つけにくいです。</li>
+    <li>名前と記号の対応は保存しません。ページを閉じると元に戻せなくなります。</li>
+  </ul>
+  <div class="layout">
+    <div>
+      <section class="panel" aria-labelledby="h-s1">
+        <h2 id="h-s1"><span class="no">1</span>元の文を貼る</h2>
+        <label class="f" for="src">お客さんからのメール・LINE・問い合わせ文など</label>
+        <textarea id="src" rows="8" maxlength="10000" placeholder="ここに貼ってください"></textarea>
+        <div class="btns">
+          <button type="button" id="sample">例文を入れる</button>
+          <button type="button" id="clear">すべて消す</button>
+        </div>
+        <p class="small" id="srclen">0 / 10,000字</p>
+        <h3>置き換える所</h3>
+        <div class="textview empty" id="preview" aria-live="polite">文を貼ると、置き換える候補に印が付きます。</div>
+        <ul class="cands" id="cands"></ul>
+        <h3>伏せる言葉を足す</h3>
+        <p class="small">店名・商品名・あだ名など、自動で見つからなかった言葉を足せます。同じ言葉は文中すべて置き換わります。</p>
+        <div class="addrow">
+          <input type="text" id="addword" maxlength="50" aria-label="伏せる言葉" placeholder="例: 山田">
+          <select id="addkind" aria-label="種類">
+            <option value="person">人</option>
+            <option value="company">会社・店</option>
+            <option value="other">その他</option>
+          </select>
+        </div>
+        <div class="btns"><button type="button" id="addbtn">この言葉を伏せる</button></div>
+        <p class="msg" id="addmsg" aria-live="polite"></p>
+      </section>
+    </div>
+    <div class="sticky">
+      <section class="panel" aria-labelledby="h-s2">
+        <h2 id="h-s2"><span class="no">2</span>伏せた文をコピーしてAIに貼る</h2>
+        <p class="count" id="maskcount">まだ伏せた所はありません</p>
+        <label class="check"><input type="checkbox" id="prefix" checked><span>先頭に「【 】の部分は伏せ字です。返事でもそのまま使ってください」の1行を付ける</span></label>
+        <div class="textview empty" id="masked">ここに伏せた文が出ます。</div>
+        <div class="btns"><button type="button" class="primary grow" id="copymask" disabled>伏せた文をコピー</button></div>
+        <p class="msg" id="copymaskmsg" aria-live="polite"></p>
+      </section>
+      <section class="panel" aria-labelledby="h-s3">
+        <h2 id="h-s3"><span class="no">3</span>AIの返事を貼って元に戻す</h2>
+        <label class="f" for="reply">AIの返事</label>
+        <textarea id="reply" rows="6" maxlength="10000" placeholder="AIの返事をここに貼ってください"></textarea>
+        <p class="count" id="restorecount"></p>
+        <div id="restorewarn"></div>
+        <div class="textview empty" id="restored">ここに元に戻した文が出ます。</div>
+        <div class="btns"><button type="button" class="primary grow" id="copyrestore" disabled>戻した文をコピー</button></div>
+        <p class="msg" id="copyrestoremsg" aria-live="polite"></p>
+        <details id="mapbox">
+          <summary>対応表を見る</summary>
+          <p class="small">元の言葉は一部だけ表示しています。「表示」を押すと全部出ます。</p>
+          <table class="maptable"><tbody id="maptable"></tbody></table>
+        </details>
+      </section>
+    </div>
+  </div>
+  <footer class="mw-footer">
+    <p>みちAIワークス（MICHI AI WORKS）／代表 田中　泉</p>
+    <p>運営: <a href="https://michi-portfolio.vercel.app/" rel="noopener">みちAIワークス 公式サイト</a>（https://michi-portfolio.vercel.app/ ）／ お問い合わせ: <a href="mailto:nncf123nncf@gmail.com">nncf123nncf@gmail.com</a></p>
+    <p>貼った文と、名前と記号の対応表は、お使いの端末のブラウザの中だけで扱い、送信も保存もしません。このページはAIにつながっていません。AIへ貼るのはご自身の操作です。各AIサービスでの扱いは、それぞれの設定と規約をご確認ください。アクセス解析（Cloudflare Web Analytics）で、ページの閲覧状況（閲覧数・参照元・ブラウザの種類など）を計測しています。</p>
+    <p>ログイン・会員登録・パスワードの入力を求めることはありません。</p>
+  </footer>
+</main>
+
+<script id="core">
+var MR = (function () {
+  'use strict';
+  var MAX = 10000;
+  var PREFIX = '【 】で囲んだ部分は伏せ字です。返事の中でもそのまま使ってください。';
+  var KINDS = {
+    person:  { label: '人',     tok: 'お客様', letter: true },
+    company: { label: '会社',   tok: '会社',   letter: true },
+    address: { label: '住所',   tok: '住所' },
+    email:   { label: 'メール', tok: 'メール' },
+    phone:   { label: '電話',   tok: '電話' },
+    zip:     { label: '〒',     tok: '郵便番号' },
+    url:     { label: 'URL',    tok: 'URL' },
+    number:  { label: '番号',   tok: '番号' },
+    other:   { label: '伏せ字', tok: '伏せ字' }
+  };
+  /* 同じ範囲で重なったときに残す順 */
+  var PRI = { url: 9, email: 8, phone: 7, zip: 6, number: 5, address: 4, company: 3, person: 2, other: 1 };
+
+  var HY = 'ー-−‐‑‒–—―─━﹣';
+  function isDigit(c) { return c >= '0' && c <= '9'; }
+  /* 1文字ずつNFKC。a[i]/b[i]=正規化後のi文字目が対応する元の範囲[a,b) */
+  function normalize(str, hyphen) {
+    var s = [], a = [], b = [], i = 0, n = str.length;
+    while (i < n) {
+      var cp = str.codePointAt(i), len = cp > 0xFFFF ? 2 : 1, ch = str.substr(i, len), nf = ch.normalize('NFKC');
+      for (var k = 0; k < nf.length; k++) { s.push(nf.charAt(k)); a.push(i); b.push(i + len); }
+      i += len;
+    }
+    if (hyphen) {
+      /* 数字のそばの長音・ハイフン類だけを半角ハイフンへ(文中の「ー」を巻き込まない) */
+      for (var j = 0; j < s.length; j++) {
+        if (HY.indexOf(s[j]) < 0) continue;
+        var p = j - 1; while (p >= 0 && s[p] === ' ') p--;
+        var q = j + 1; while (q < s.length && s[q] === ' ') q++;
+        if ((p >= 0 && isDigit(s[p])) || (q < s.length && isDigit(s[q]))) s[j] = '-';
+      }
+    }
+    return { s: s.join(''), a: a, b: b };
+  }
+  function digitsOf(t) { return t.replace(/\D/g, ''); }
+
+  /* ---- 連絡先・番号(Day073の規則を文章向けに流用) ---- */
+  var TLD = '(?:co\\.jp|ne\\.jp|or\\.jp|ac\\.jp|go\\.jp|com|net|org|jp|io|info|biz|dev|app|me|co)';
+  function findContacts(text, add) {
+    var N = normalize(text, true), s = N.s, re, m;
+    function put(kind, ns, ne) { if (ne > ns) add(kind, N.a[ns], N.b[ne - 1]); }
+    re = /(?:https?:\/{1,2}|www\.)[^\s　「」『』【】（）()<>]+/gi;
+    while ((m = re.exec(s))) put('url', m.index, m.index + m[0].replace(/[.,;:!?)\]、。]+$/, '').length);
+    re = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+    while ((m = re.exec(s))) put('email', m.index, m.index + m[0].length);
+    re = new RegExp('[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.' + TLD + '(?![A-Za-z0-9-])', 'gi');
+    while ((m = re.exec(s))) {
+      if (/[A-Za-z0-9@._\/-]/.test(s.charAt(m.index - 1) || ' ')) continue;
+      put('url', m.index, m.index + m[0].length);
+    }
+    re = /\+81[- ]?\d{1,4}[- ]?\d{1,4}[- ]?\d{3,4}/g;
+    while ((m = re.exec(s))) put('phone', m.index, m.index + m[0].length);
+    re = /0\d{1,4}[- ]{0,3}\d{1,4}[- ]{0,3}\d{3,4}/g;
+    while ((m = re.exec(s))) {
+      var d2 = digitsOf(m[0]), prev = s.charAt(m.index - 1), nxt = s.charAt(m.index + m[0].length);
+      if (d2.length < 10 || d2.length > 11 || isDigit(prev) || isDigit(nxt)) continue;
+      put('phone', m.index, m.index + m[0].length);
+    }
+    re = /〒 ?\d{3}[- ]?\d{4}|\d{3}-\d{4}/g;
+    while ((m = re.exec(s))) {
+      var p3 = s.charAt(m.index - 1), n3 = s.charAt(m.index + m[0].length), n4 = s.charAt(m.index + m[0].length + 1);
+      if (m[0].charAt(0) !== '〒' && (isDigit(p3) || (p3 === '-' && isDigit(s.charAt(m.index - 2))))) continue;
+      if (isDigit(n3) || (n3 === '-' && isDigit(n4))) continue;
+      put('zip', m.index, m.index + m[0].length);
+    }
+    /* 長い数字(8桁以上)。日付の形(2026-10-24・2026/10/24)は拾わない */
+    /* 空白区切りは4桁ずつ(カード番号の形)だけ。ハイフン区切りは自由 */
+    re = /\d{4}(?: \d{4}){2,}(?: \d{1,4})?|\d(?:-?\d){7,}/g;
+    while ((m = re.exec(s))) {
+      var t = m[0];
+      if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(t)) continue;
+      var pc = s.charAt(m.index - 1), nc = s.charAt(m.index + t.length);
+      if (isDigit(pc) || pc === '.' || pc === ',' || nc === '.' || nc === ',') continue;
+      put('number', m.index, m.index + t.length);
+    }
+    /* 口座番号(7桁)は「口座」の後だけ */
+    re = /口座(?:番号)?\s*[:：は]?\s*(\d{7})(?!\d)/g;
+    while ((m = re.exec(s))) put('number', m.index + m[0].length - 7, m.index + m[0].length);
+  }
+
+  /* ---- 人・会社・住所(日本語の形を手がかりにする) ---- */
+  var K = '一-龯㐀-䶵々〆ヶァ-ヺーA-Za-zＡ-Ｚａ-ｚ';
+  var NAME = '[' + K + ']{1,10}(?:[ 　][' + K + ']{1,10})?';
+  var HONOR = '(?:様(?![々子式相態変な])|さま|さん|殿|先生|くん|ちゃん)';
+  var STOP = ('客 お客 皆 各位 奥 母 父 兄 姉 弟 妹 嫁 婿 娘 息子 旦那 主人 御主人 先方 神 仏 王 社長 部長 課長 係長 店長 院長 校長 理事長 会長 専務 常務 担当 担当者 '
+    + '責任者 利用者 会員 生徒 患者 来場者 参加者 購入者 申込者 応募者 ユーザー オーナー ゲスト メンバー ママ パパ スタッフ ドクター 医者 業者 大家 管理人 先生 方 '
+    + '貴殿 貴方 皆々 御中 御一行 一同 お子 子 皆皆 お嬢 嬢 坊 おじい おばあ 爺 婆 姫 殿 様 同 模 仕 多 異 一 宮 神 御 本 拝 王子 作家 画家 職人').split(' ');
+  var STOPSET = {}; STOP.forEach(function (w) { STOPSET[w] = 1; });
+  var HEAD = ['弊社', '御社', '貴社', '当社', '担当者', '担当', '営業', '代表', '社長', '部長', '課長', '店長', '院長', '先日', '今回', '前回', '先方', '株式会社'];
+  var TAIL = { '様': '同模仕多異一如左斯', '殿': '宮神御本拝沈' };
+  var CO_SUFFIX = /(?:商事|商店|商会|工務店|会社|社|店|屋|堂|工房|事務所|サロン|クリニック|医院|病院|教室|スタジオ|協会|組合|法人|銀行|ホテル|カフェ|ショップ)$/;
+  var CO_PREFIX = '(?:株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|NPO法人|特定非営利活動法人|（株）|\\(株\\)|㈱|（有）|\\(有\\)|㈲)';
+  var PREFS = '北海道|東京都|大阪府|京都府|(?:青森|岩手|宮城|秋田|山形|福島|茨城|栃木|群馬|埼玉|千葉|神奈川|新潟|富山|石川|福井|山梨|長野|岐阜|静岡|愛知|三重|滋賀|兵庫|奈良|和歌山|鳥取|島根|岡山|広島|山口|徳島|香川|愛媛|高知|福岡|佐賀|長崎|熊本|大分|宮崎|鹿児島|沖縄)県';
+
+  function cleanName(v) {
+    v = v.replace(/^[ 　]+|[ 　]+$/g, '');
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (var i = 0; i < HEAD.length; i++) {
+        var h = HEAD[i];
+        if (v.indexOf(h) === 0 && v.length > h.length) { v = v.slice(h.length).replace(/^[ 　]+/, ''); changed = true; }
+      }
+    }
+    return v;
+  }
+  function findJapanese(text, add) {
+    var re, m;
+    /* 会社: 株式会社◯◯／◯◯株式会社 */
+    re = new RegExp(CO_PREFIX + '[ 　]?[^\\s　、。,，.「」『』【】（）()の様さとやにをはがへでも]{1,20}', 'g');
+    while ((m = re.exec(text))) add('company', m.index, m.index + m[0].length);
+    re = new RegExp('[' + K + '0-9０-９・&＆]{1,20}' + CO_PREFIX, 'g');
+    while ((m = re.exec(text))) add('company', m.index, m.index + m[0].length);
+    /* 住所: 都道府県名から。市区町村郡のどれかを含むときだけ */
+    re = new RegExp('(?:' + PREFS + ')[一-龯々ヶケァ-ヺー0-9０-９\\-－ー−‐の之ノが番地号丁目]{2,40}', 'g');
+    while ((m = re.exec(text))) {
+      var ad = m[0].replace(/[のが\-－ー−‐]+$/, '');
+      if (!/[市区町村郡]/.test(ad.replace(/^(?:北海道|東京都|大阪府|京都府|.{2,3}県)/, ''))) continue;
+      add('address', m.index, m.index + ad.length);
+    }
+    /* 人: 敬称の前 */
+    function person(start, raw) {
+      var v = cleanName(raw);
+      if (!v) return;
+      var off = raw.indexOf(v);
+      var bare = v.replace(/[ 　]/g, ''), parts = v.split(/[ 　]/);
+      /* 「テスト 皆様」のように、空白の後ろが一般語なら名前にしない。空白の前が一般語なら後ろだけを名前の候補にする */
+      if (STOPSET[bare] || STOPSET[parts[parts.length - 1]] || bare.length < 2) return;
+      if (parts.length > 1 && STOPSET[parts[0]]) { var lastp = parts[parts.length - 1]; person(start + raw.lastIndexOf(lastp), lastp); return; }
+      if (/^[A-Za-zＡ-Ｚａ-ｚ]{1,2}$/.test(bare)) return;
+      if (CO_SUFFIX.test(bare)) { add('company', start + off, start + off + v.length); return; }
+      add('person', start + off, start + off + v.length);
+    }
+    re = new RegExp('(' + NAME + ')' + HONOR, 'g');
+    while ((m = re.exec(text))) {
+      var nm = m[1], h = m[0].slice(nm.length), last = nm.charAt(nm.length - 1);
+      if (TAIL[h] && TAIL[h].indexOf(last) >= 0 && nm.length <= 2) continue;
+      if (h === '様' && TAIL['様'].indexOf(last) >= 0) continue;
+      person(m.index, nm);
+    }
+    /* 人: 名乗り・署名 */
+    re = new RegExp('(' + NAME + ')(?:と申します|と申し上げます|でございます)', 'g');
+    while ((m = re.exec(text))) person(m.index, m[1]);
+    re = new RegExp('(?:お名前|氏名|名前|担当者?|ご担当)[ 　]*[:：][ 　]*(' + NAME + ')', 'g');
+    while ((m = re.exec(text))) person(m.index + m[0].length - m[1].length, m[1]);
+  }
+
+  /* 候補 [{kind, value}] (出てきた順・同じ値は1つ) */
+  function detect(text) {
+    text = String(text || '').slice(0, MAX);
+    var raw = [];
+    function add(kind, s, e) { if (e > s) raw.push({ kind: kind, s: s, e: e }); }
+    findContacts(text, add);
+    findJapanese(text, add);
+    raw.forEach(function (r) {
+      /* 両端の空白を外す */
+      while (r.e > r.s && /[ 　]/.test(text.charAt(r.e - 1))) r.e--;
+      while (r.e > r.s && /[ 　]/.test(text.charAt(r.s))) r.s++;
+    });
+    raw.sort(function (x, y) { return (y.e - y.s) - (x.e - x.s) || (PRI[y.kind] - PRI[x.kind]) || x.s - y.s; });
+    var taken = [];
+    raw.forEach(function (r) {
+      if (r.e <= r.s) return;
+      for (var i = 0; i < taken.length; i++) if (r.s < taken[i].e && taken[i].s < r.e) return;
+      taken.push(r);
+    });
+    taken.sort(function (x, y) { return x.s - y.s; });
+    var seen = {}, out = [];
+    taken.forEach(function (r) {
+      var v = text.slice(r.s, r.e);
+      if (seen[v]) return;
+      seen[v] = 1; out.push({ kind: r.kind, value: v });
+    });
+    return out;
+  }
+
+  function letters(n) { var s = ''; n++; while (n > 0) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
+
+  /* 文中を、長い言葉から先に照合しながら左から区切る */
+  function scan(text, terms) {
+    var list = terms.filter(function (t) { return t.value; }).slice().sort(function (x, y) { return y.value.length - x.value.length; });
+    var byFirst = {};
+    list.forEach(function (t) { var c = t.value.charAt(0); (byFirst[c] = byFirst[c] || []).push(t); });
+    var segs = [], buf = '', i = 0, n = text.length;
+    while (i < n) {
+      var cand = byFirst[text.charAt(i)], hit = null;
+      if (cand) for (var k = 0; k < cand.length; k++) if (text.startsWith(cand[k].value, i)) { hit = cand[k]; break; }
+      if (hit) { if (buf) { segs.push({ t: buf }); buf = ''; } segs.push({ t: hit.value, term: hit }); i += hit.value.length; }
+      else { buf += text.charAt(i); i++; }
+    }
+    if (buf) segs.push({ t: buf });
+    return segs;
+  }
+
+  /* 候補と手で足した言葉から、記号つきの言葉の一覧を作る。番号は文中に出てきた順(伏せない言葉も番号を持つので、切り替えても他の記号は変わらない) */
+  function buildTerms(text, cands, manual, offs) {
+    text = String(text || '').slice(0, MAX);
+    var terms = [], byVal = {};
+    cands.forEach(function (c) { var t = { kind: c.kind, value: c.value, src: 'auto' }; terms.push(t); byVal[c.value] = t; });
+    (manual || []).forEach(function (m) {
+      if (!m.value) return;
+      if (byVal[m.value]) { byVal[m.value].src = 'both'; return; }
+      var t = { kind: m.kind, value: m.value, src: 'manual' }; terms.push(t); byVal[m.value] = t;
+    });
+    terms.forEach(function (t) { t.on = !(offs && offs[t.value]); t.count = 0; t.first = -1; t.token = ''; });
+    scan(text, terms).forEach(function (sg, idx) { if (sg.term) { sg.term.count++; if (sg.term.first < 0) sg.term.first = idx; } });
+    var ctr = {};
+    terms.filter(function (t) { return t.count > 0; }).sort(function (x, y) { return x.first - y.first; }).forEach(function (t) {
+      var k = KINDS[t.kind], n = ctr[t.kind] || 0; ctr[t.kind] = n + 1;
+      t.inner = k.tok + (k.letter ? letters(n) : String(n + 1));
+      t.token = '【' + t.inner + '】';
+    });
+    return terms;
+  }
+
+  function mask(text, terms, withPrefix) {
+    text = String(text || '').slice(0, MAX);
+    /* 伏せないにした言葉も区切りには使う(「山田 花子」を伏せないとき、中の「山田」だけが伏せられないように) */
+    var segs = scan(text, terms.filter(function (t) { return t.token; })), out = '', count = 0;
+    segs.forEach(function (sg) { if (sg.term && sg.term.on) { out += sg.term.token; count++; } else out += sg.t; });
+    var body = out;
+    if (withPrefix && count) out = PREFIX + '\n\n' + out;
+    return { text: out, body: body, segs: segs, count: count };
+  }
+
+  /* 返事の中の記号を元に戻す。括弧の崩れ・全角半角の違いも拾う */
+  function restore(reply, terms) {
+    reply = String(reply || '').slice(0, MAX);
+    var on = terms.filter(function (t) { return t.on && t.token; });
+    var byInner = {}; on.forEach(function (t) { byInner[t.inner.toUpperCase()] = t; t.restored = 0; });
+    var N = normalize(reply, false), s = N.s;
+    var re = /([【\[「『(〔〈《]?)(お客様|会社|住所|メール|電話|郵便番号|URL|番号|伏せ字)([A-Za-z]+|\d+)(?![A-Za-z0-9])([】\]」』)〕〉》]?)/gi;
+    var hits = [], unknown = [], m;
+    while ((m = re.exec(s))) {
+      var o = m[1], c = m[4], inner = (m[2] + m[3]).toUpperCase(), numbered = /\d$/.test(m[3]);
+      var t = byInner[inner];
+      var bracket = !!(o || c);
+      if (!t) { if (bracket && (o === '【' || c === '】')) unknown.push(reply.slice(N.a[m.index], N.b[m.index + m[0].length - 1])); continue; }
+      if (numbered && !bracket) continue; /* 「番号1」などは自然な文にも出るので、括弧が無ければ戻さない */
+      hits.push({ s: N.a[m.index], e: N.b[m.index + m[0].length - 1], term: t });
+    }
+    var segs = [], last = 0, out = '', count = 0;
+    hits.forEach(function (h) {
+      if (h.s < last) return;
+      if (h.s > last) { segs.push({ t: reply.slice(last, h.s) }); out += reply.slice(last, h.s); }
+      segs.push({ t: h.term.value, term: h.term, from: reply.slice(h.s, h.e) }); out += h.term.value; count++; h.term.restored++;
+      last = h.e;
+    });
+    if (last < reply.length) { segs.push({ t: reply.slice(last) }); out += reply.slice(last); }
+    var unused = on.filter(function (t) { return !t.restored; });
+    var doubled = [];
+    on.forEach(function (t) { if (t.kind === 'person' && t.restored && out.indexOf(t.value + '様様') >= 0) doubled.push(t.value + '様様'); });
+    return { text: out, segs: segs, count: count, unknown: unknown, unused: unused, doubled: doubled };
+  }
+
+  /* 対応表の表示用: 先頭と末尾以外を伏せる */
+  function peek(v) {
+    var a = Array.from(v);
+    if (a.length <= 2) return a[0] + '＊';
+    return a[0] + new Array(Math.min(a.length - 2, 8) + 1).join('＊') + a[a.length - 1];
+  }
+
+  var SAMPLE = 'はじめまして、株式会社サンプル商事の山田 花子と申します。\n来月の社内研修で、パンフレットの撮影をお願いできないかと思いご連絡しました。\n会場は 東京都架空区見本町1-2-3 の3階です。\nご都合を、山田様宛てではなく担当の佐藤さんにご返信ください。\n連絡先: hanako@example.com / 090-0000-1234';
+
+  return { MAX: MAX, PREFIX: PREFIX, KINDS: KINDS, detect: detect, buildTerms: buildTerms, mask: mask, restore: restore, scan: scan, peek: peek, letters: letters, normalize: normalize, SAMPLE: SAMPLE };
+})();
+if (typeof module !== 'undefined') module.exports = MR;
+</script>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var src = $('src'), reply = $('reply');
+  var state = { cands: [], manual: [], offs: {}, terms: [] };
+  var timer = null;
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function kindLabel(k) { return MR.KINDS[k].label; }
+
+  function recompute() {
+    var text = src.value;
+    $('srclen').textContent = Array.from(text).length.toLocaleString('ja-JP') + ' / 10,000字';
+    state.cands = MR.detect(text);
+    state.terms = MR.buildTerms(text, state.cands, state.manual, state.offs);
+    renderPreview(text); renderCands(); renderMasked(); renderRestore(); renderMap();
+  }
+  function schedule() { clearTimeout(timer); timer = setTimeout(recompute, 150); }
+
+  function mark(term, text, isOff) {
+    var sp = el('span', 'mk k-' + term.kind + (isOff ? ' off' : ''));
+    sp.appendChild(el('span', 'lb', kindLabel(term.kind)));
+    sp.appendChild(document.createTextNode(text));
+    return sp;
+  }
+  function renderPreview(text) {
+    var box = $('preview'); clear(box);
+    if (!text) { box.className = 'textview empty'; box.textContent = '文を貼ると、置き換える候補に印が付きます。'; return; }
+    box.className = 'textview';
+    MR.scan(text, state.terms.filter(function (t) { return t.token; })).forEach(function (sg) {
+      box.appendChild(sg.term ? mark(sg.term, sg.t, !sg.term.on) : document.createTextNode(sg.t));
+    });
+  }
+  function renderCands() {
+    var ul = $('cands'); clear(ul);
+    state.terms.forEach(function (t) {
+      var li = el('li', t.on ? '' : 'isoff');
+      var v = el('div', 'v');
+      v.appendChild(el('span', 'kd k-' + t.kind, kindLabel(t.kind)));
+      v.appendChild(el('span', 'orig', t.value));
+      if (t.token) v.appendChild(el('span', 'to', t.on ? '→ ' + t.token + (t.count > 1 ? '（' + t.count + '回）' : '') : '伏せない（元のまま）'));
+      else v.appendChild(el('span', 'to none', '文中にありません'));
+      li.appendChild(v);
+      if (t.src === 'manual') {
+        var del = el('button', '', '外す'); del.type = 'button';
+        del.setAttribute('aria-label', t.value + 'を、足した言葉から外す');
+        del.addEventListener('click', function () { state.manual = state.manual.filter(function (m) { return m.value !== t.value; }); delete state.offs[t.value]; recompute(); });
+        li.appendChild(del);
+      } else {
+        var b = el('button', 'tg', t.on ? '伏せる' : '伏せない'); b.type = 'button';
+        b.setAttribute('aria-pressed', t.on ? 'true' : 'false');
+        b.setAttribute('aria-label', t.value + 'を' + (t.on ? '伏せています。押すと伏せない' : '伏せていません。押すと伏せる'));
+        b.addEventListener('click', function () { if (t.on) state.offs[t.value] = 1; else delete state.offs[t.value]; recompute(); });
+        li.appendChild(b);
+      }
+      ul.appendChild(li);
+    });
+  }
+  function renderMasked() {
+    var r = MR.mask(src.value, state.terms, $('prefix').checked), box = $('masked');
+    clear(box);
+    $('maskcount').textContent = r.count ? r.count + 'か所を伏せました' : 'まだ伏せた所はありません';
+    $('copymask').disabled = !src.value;
+    if (!src.value) { box.className = 'textview empty'; box.textContent = 'ここに伏せた文が出ます。'; return; }
+    box.className = 'textview';
+    if ($('prefix').checked && r.count) box.appendChild(el('span', 'small', MR.PREFIX + '\n\n'));
+    r.segs.forEach(function (sg) {
+      if (sg.term && sg.term.on && sg.term.token) box.appendChild(el('span', 'tok', sg.term.token));
+      else box.appendChild(document.createTextNode(sg.t));
+    });
+  }
+  function renderRestore() {
+    var box = $('restored'), warn = $('restorewarn'); clear(box); clear(warn);
+    var text = reply.value;
+    if (!text) {
+      box.className = 'textview empty'; box.textContent = 'ここに元に戻した文が出ます。';
+      $('restorecount').textContent = ''; $('copyrestore').disabled = true; return;
+    }
+    var r = MR.restore(text, state.terms);
+    box.className = 'textview';
+    r.segs.forEach(function (sg) {
+      if (sg.term) { var u = el('span', 'rs', sg.t); u.title = sg.from + ' を戻しました'; box.appendChild(u); }
+      else box.appendChild(document.createTextNode(sg.t));
+    });
+    $('restorecount').textContent = r.count + 'か所を戻しました';
+    $('copyrestore').disabled = false;
+    var items = [];
+    if (!state.terms.some(function (t) { return t.on && t.token; })) items.push('対応表がありません。ページを開き直した場合は、元に戻せません（①から伏せ直してください）。');
+    if (r.unknown.length) items.push('戻せなかった記号があります: ' + r.unknown.slice(0, 10).join('、'));
+    if (r.doubled.length) items.push('敬称が二重になっている所があります: ' + r.doubled.join('、'));
+    if (items.length) {
+      var w = el('div', 'warn'); w.appendChild(el('strong', '', '確認してください')); var ul = el('ul');
+      items.forEach(function (s) { ul.appendChild(el('li', '', s)); }); w.appendChild(ul); warn.appendChild(w);
+    }
+    if (r.unused.length && state.terms.some(function (t) { return t.on && t.token; })) {
+      warn.appendChild(el('p', 'small', '返事に出てこなかった記号: ' + r.unused.map(function (t) { return t.token; }).join('、') + '（問題ではありません。名前が抜けた返事になっていないかの確認用です）'));
+    }
+  }
+  function renderMap() {
+    var tb = $('maptable'); clear(tb);
+    var on = state.terms.filter(function (t) { return t.on && t.token; });
+    if (!on.length) { var tr0 = el('tr'); tr0.appendChild(el('td', '', 'まだありません')); tb.appendChild(tr0); return; }
+    on.forEach(function (t) {
+      var tr = el('tr'), td1 = el('td', 'tok', t.token), td2 = el('td', '', MR.peek(t.value)), td3 = el('td');
+      var b = el('button', '', '表示'); b.type = 'button'; b.setAttribute('aria-label', t.token + 'の元の言葉を表示');
+      b.addEventListener('click', function () { td2.textContent = t.value; b.disabled = true; });
+      td3.appendChild(b); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tb.appendChild(tr);
+    });
+  }
+
+  function copyText(text, msgEl, srcNode) {
+    function fallback() {
+      var sel = window.getSelection(), range = document.createRange();
+      range.selectNodeContents(srcNode); sel.removeAllRanges(); sel.addRange(range);
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      msgEl.textContent = ok ? 'コピーしました' : '文を選択しました。長押し（パソコンはCtrl+C）でコピーしてください';
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { msgEl.textContent = 'コピーしました'; }, fallback);
+    } else fallback();
+  }
+
+  src.addEventListener('input', schedule);
+  reply.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(function () { renderRestore(); }, 150); });
+  $('prefix').addEventListener('change', renderMasked);
+  $('sample').addEventListener('click', function () { src.value = MR.SAMPLE; state.manual = []; state.offs = {}; recompute(); });
+  $('clear').addEventListener('click', function () {
+    if ((src.value || reply.value) && !window.confirm('入力・返事・対応表をすべて消します。よろしいですか？')) return;
+    src.value = ''; reply.value = ''; state.manual = []; state.offs = {}; $('addmsg').textContent = '';
+    $('copymaskmsg').textContent = ''; $('copyrestoremsg').textContent = ''; recompute();
+  });
+  $('addbtn').addEventListener('click', function () {
+    var w = $('addword').value.replace(/^[ 　]+|[ 　]+$/g, ''), kind = $('addkind').value, msg = $('addmsg');
+    if (!w) { msg.textContent = '伏せる言葉を入れてください'; return; }
+    var ex = state.terms.filter(function (t) { return t.value === w; })[0];
+    if (ex) { delete state.offs[w]; msg.textContent = '「' + w + '」はすでに伏せる対象です'; $('addword').value = ''; recompute(); return; }
+    if (state.manual.length >= 30) { msg.textContent = '足せる言葉は30個までです'; return; }
+    state.manual.push({ value: w, kind: kind }); $('addword').value = '';
+    recompute();
+    var t = state.terms.filter(function (x) { return x.value === w; })[0];
+    msg.textContent = t && t.token ? '「' + w + '」を ' + t.token + ' にしました' : '「' + w + '」は文中にありません（足した言葉には残しています）';
+  });
+  $('addword').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('addbtn').click(); } });
+  $('copymask').addEventListener('click', function () { copyText(MR.mask(src.value, state.terms, $('prefix').checked).text, $('copymaskmsg'), $('masked')); });
+  $('copyrestore').addEventListener('click', function () { copyText(MR.restore(reply.value, state.terms).text, $('copyrestoremsg'), $('restored')); });
+  window.addEventListener('beforeunload', function (e) { if (src.value || reply.value) { e.preventDefault(); e.returnValue = ''; } });
+  recompute();
+})();
+</script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js"
+        data-cf-beacon='{"token": "b4c9f7e78daf4edb84ef52b88633f649"}'></script>
+</body>
+</html>
